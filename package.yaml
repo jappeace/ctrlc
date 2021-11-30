@@ -1,10 +1,10 @@
-name:                template
+name:                ctrlc
 version:             1.0.0
 license:             MIT
 author:              "Jappie Klooster"
 maintainer:          "jappieklooster@hotmail.com"
-copyright:           "2020 Jappie Klooster"
-github:              "jappeace/haskell-template-project"
+copyright:           "2021 Jappie Klooster"
+github:              "jappeace/ctrlc"
 
 extra-source-files:
 - Readme.md
@@ -55,17 +55,6 @@ dependencies:
 library:
   source-dirs: src
 
-executables:
-  exe:
-    main:                exe.hs
-    source-dirs:         app
-    dependencies:
-    - template
-    ghc-options:
-    - -threaded
-    - -rtsopts
-    - -with-rtsopts=-N
-
 tests:
   unit:
     main:                Spec.hs
@@ -74,4 +63,4 @@ tests:
     dependencies:
     - hspec
     - hspec-core
-    - template
+    - ctrlc

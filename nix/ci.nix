@@ -1,7 +1,7 @@
 {
   default = import ../default.nix {};
   # https://github.com/NixOS/nixpkgs/blob/master/pkgs/top-level/haskell-packages.nix#L47
-  pkgs = (import ./pkgs.nix).haskellPackages.template;
+  pkgs = (import ./pkgs.nix).haskellPackages.ctrlc;
 
   shell = (import ../shell.nix {});
   # bundle = (import ./bundle.nix {});
