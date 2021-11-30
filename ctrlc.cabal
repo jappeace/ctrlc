@@ -53,6 +53,9 @@ library
   ghc-options: -Wall -Wcompat -Wincomplete-uni-patterns -Wredundant-constraints -Wincomplete-record-updates -Widentities -Wcpp-undef -fwarn-tabs -Wpartial-fields
   build-depends:
       base >=4.7 && <5
+    , containers
+    , stm
+    , unix
   default-language: Haskell2010
 
 test-suite unit
@@ -83,10 +86,13 @@ test-suite unit
       StandaloneDeriving
       OverloadedStrings
       TypeApplications
-  ghc-options: -Wall -Wcompat -Wincomplete-uni-patterns -Wredundant-constraints -Wincomplete-record-updates -Widentities -Wcpp-undef -fwarn-tabs -Wpartial-fields
+  ghc-options: -Wall -Wcompat -Wincomplete-uni-patterns -Wredundant-constraints -Wincomplete-record-updates -Widentities -Wcpp-undef -fwarn-tabs -Wpartial-fields -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       base >=4.7 && <5
+    , containers
     , ctrlc
     , hspec
     , hspec-core
+    , stm
+    , unix
   default-language: Haskell2010
