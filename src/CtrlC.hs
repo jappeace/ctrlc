@@ -27,7 +27,6 @@ import System.Timeout
 import Data.Typeable (Typeable)
 import System.Posix.Signals
 import System.Mem.Weak (deRefWeak)
-import Control.Monad(void)
 
 data LogMsg = ExitedGracefully
             | TimeOut
@@ -39,11 +38,11 @@ defLogger :: LogMsg -> IO ()
 defLogger _ = pure ()
 
 toString :: LogMsg -> String
-toString ExitedGracefully = "ExitedGracefully"
-toString TimeOut = "TimeOut"
-toString (Killing tid) = "Killing " <> show tid
-toString (KillingSet tset) = "Killing set " <> show tset
-toString StartedKilling = "Started Killing"
+toString ExitedGracefully = "CtrlC: ExitedGracefully"
+toString TimeOut = "CtrlC: TimeOut"
+toString (Killing tid) = "CtrlC: Killing " <> show tid
+toString (KillingSet tset) = "CtrlC: Killing set " <> show tset
+toString StartedKilling = "CtrlC: Started Killing"
 
 printLogger :: LogMsg -> IO ()
 printLogger = putStrLn . toString
@@ -104,20 +103,20 @@ withKillThese settings fun = do
     restore (fun $ MkCtrlCState
                 { ccsTrackedThreads = threads
       }) `finally` do
-        log StartedKilling
+        info StartedKilling
         threadSet <- readTVarIO threads
-        log $ KillingSet threadSet
+        info $ KillingSet threadSet
         traverse_ (\tid -> do
-                     log $ Killing tid
+                     info $ Killing tid
                      killThread tid
                   ) threadSet
         res <- timeout (csTimeout settings) $ waitTillClean threads
         case res of
-          Nothing -> log TimeOut
-          Just _ -> log ExitedGracefully
+          Nothing -> info TimeOut
+          Just _ -> info ExitedGracefully
 
   where
-    log = csLogger settings
+    info = csLogger settings
 
 waitTillClean :: TVar (Set ThreadId) -> IO ()
 waitTillClean x = do

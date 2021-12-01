@@ -60,13 +60,16 @@ library:
 
 tests:
   unit:
-    main:                Spec.hs
+    main:                Main.hs
     source-dirs:
     - test
     dependencies:
-    - hspec
-    - hspec-core
     - ctrlc
+    - tasty
+    - tasty-quickcheck
+    - tasty-hunit
+    - tasty-expected-failure 
+    - template
 
     ghc-options:
     - -threaded
