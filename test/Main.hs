@@ -6,7 +6,7 @@ import           Control.Concurrent
 import           Control.Exception          (bracket)
 import           Control.Monad
 import           CtrlC                      (defSettings, forkTracked, csLogger, printLogger,
-                                             withKillThese)
+                                             withKillThese, csTimeout )
 import           System.Timeout
 import           Test.Tasty
 import           Test.Tasty.ExpectedFailure
@@ -49,6 +49,7 @@ killTest  fun = do
       setMvarThreadId <- forkIO $ do
           withKillThese (defSettings
                           -- {csLogger = printLogger}
+                          -- {csTimeout = 0_200_000 }
                         ) $ \cstate -> do
             void $ forkTracked cstate $ fun mvar
 
