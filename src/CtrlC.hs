@@ -112,11 +112,16 @@ withKillThese settings fun = do
                   ) threadSet
         res <- timeout (csTimeout settings) $ waitTillClean threads
         case res of
-          Nothing -> info TimeOut
-          Just _ -> info ExitedGracefully
+          Nothing -> do
+            info TimeOut
+          Just _ -> do
+            info ExitedGracefully
 
   where
-    info = csLogger settings
+    info :: LogMsg -> IO ()
+    info msg = do
+      yield
+      csLogger settings msg
 
 waitTillClean :: TVar (Set ThreadId) -> IO ()
 waitTillClean x = do

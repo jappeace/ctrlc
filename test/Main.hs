@@ -3,18 +3,14 @@
 module Main where
 
 import           Control.Concurrent
-import           Control.Concurrent.MVar
 import           Control.Exception          (bracket)
 import           Control.Monad
-import           CtrlC                      (csLogger, defSettings, forkTracked,
-                                             printLogger, withKillThese)
+import           CtrlC                      (defSettings, forkTracked, csLogger, printLogger,
+                                             withKillThese)
 import           System.Timeout
 import           Test.Tasty
 import           Test.Tasty.ExpectedFailure
 import           Test.Tasty.HUnit
-import           Test.Tasty.QuickCheck      as QC
-
-import           Data.List                  (sort)
 
 main :: IO ()
 main = defaultMain unitTests
@@ -38,29 +34,23 @@ unitTests = testGroup "Thread cleanup"
       Nothing @=? res
 
   -- the following test does not hold
-  , testCase "With ctrl c the thread should be allowed to cleanup" $ do
-      mvar <- newEmptyMVar
-      setMvarThreadId <- forkIO $ do
-          withKillThese (defSettings
-                         -- {csLogger = printLogger}
-                        ) $ \cstate -> do
-            void $ forkTracked cstate $ awwaitThenSet mvar
-
-      -- allow set mvar thread to be forked
-      threadDelay 0_100_000 -- 0.1 second
-      killThread setMvarThreadId
-
-      res <- timeout testTime $ takeMVar mvar
-      Just True @=? res
+  , testGroup "With ctrl c the thread should be allowed to cleanup " $ (\x ->
+      testCase ("number: " <> show x) (killTest awwaitThenSet)) <$> [0..1000]
 
   , ignoreTestBecause "This will loop forever, the exception doesn't appear to arrive" $
-    testCase "With ctrl c the thread should be allowed to cleanup with pure" $ do
+    testCase "With ctrl c the thread should be allowed to cleanup with pure" $
+      killTest $ awwaitThenSet' (pure ())
+  ] -- TODO write a test for this: https://ro-che.info/articles/2014-07-30-bracket#bracket-in-non-main-threads
+
+killTest  :: (MVar Bool ->  IO ()) -> IO ()
+killTest  fun = do
+  res <- timeout ultimateTimeout $ do
       mvar <- newEmptyMVar
       setMvarThreadId <- forkIO $ do
           withKillThese (defSettings
                           -- {csLogger = printLogger}
                         ) $ \cstate -> do
-            void $ forkTracked cstate $ awwaitThenSet' mvar (pure ())
+            void $ forkTracked cstate $ fun mvar
 
       -- allow set mvar thread to be forked
       threadDelay 0_100_000 -- 0.1 second
@@ -68,23 +58,24 @@ unitTests = testGroup "Thread cleanup"
 
       res <- timeout testTime $ takeMVar mvar
       Just True @=? res
-  ]
+  assertEqual "if this is false, the entire test blocked on something" (Just ()) res
 
--- TODO write a test for this: https://ro-che.info/articles/2014-07-30-bracket#bracket-in-non-main-threads
 
 setTime :: Int
 setTime = 0_200_000
 
 testTime :: Int
-testTime = setTime + 0_100_00
+testTime = setTime + setTime
 
-awwaitThenSet' :: MVar Bool -> IO () -> IO ()
-awwaitThenSet' mvar fun =
+ultimateTimeout :: Int
+ultimateTimeout = 1_000_000
+
+awwaitThenSet' :: IO () -> MVar Bool ->  IO ()
+awwaitThenSet' fun mvar =
            bracket (pure mvar) (\x -> do
               threadDelay setTime -- 2 seconds
               putMVar x True
             ) (const $ forever fun)
 
 awwaitThenSet :: MVar Bool -> IO ()
-awwaitThenSet mvar = awwaitThenSet' mvar yield
-
+awwaitThenSet mvar = awwaitThenSet' yield mvar
