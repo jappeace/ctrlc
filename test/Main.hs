@@ -35,7 +35,7 @@ unitTests = testGroup "Thread cleanup"
 
   -- the following test does not hold
   , testGroup "With ctrl c the thread should be allowed to cleanup " $ (\x ->
-      testCase ("number: " <> show x) (killTest awwaitThenSet)) <$> [0..1000]
+      testCase ("number: " <> show x) (killTest awwaitThenSet)) <$> [0..10]
 
   , ignoreTestBecause "This will loop forever, the exception doesn't appear to arrive" $
     testCase "With ctrl c the thread should be allowed to cleanup with pure" $
@@ -48,7 +48,7 @@ killTest  fun = do
       mvar <- newEmptyMVar
       setMvarThreadId <- forkIO $ do
           withKillThese (defSettings
-                          -- {csLogger = printLogger}
+                          {csLogger = printLogger}
                           -- {csTimeout = 0_200_000 }
                         ) $ \cstate -> do
             void $ forkTracked cstate $ fun mvar

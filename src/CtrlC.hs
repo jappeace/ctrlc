@@ -32,6 +32,7 @@ data LogMsg = ExitedGracefully
             | TimeOut
             | Killing ThreadId
             | KillingSet (Set ThreadId)
+            | WaitingFor (Set ThreadId)
             | StartedKilling
 
 defLogger :: LogMsg -> IO ()
@@ -43,6 +44,7 @@ toString TimeOut = "CtrlC: TimeOut"
 toString (Killing tid) = "CtrlC: Killing " <> show tid
 toString (KillingSet tset) = "CtrlC: Killing set " <> show tset
 toString StartedKilling = "CtrlC: Started Killing"
+toString (WaitingFor tset) = "CtrlC: Waiting for these threads to untrack themselves to indicate dying gracefully " <> show tset
 
 printLogger :: LogMsg -> IO ()
 printLogger = putStrLn . toString
@@ -68,8 +70,8 @@ forkTracked state io = do
         io `finally` do
           tid' <- takeMVar mvar
           atomically $ untrack state tid'
-    putMVar mvar tid
     atomically $ track state tid -- but we need to not except here
+    putMVar mvar tid
     pure tid
 
 -- | Starts tracking a thread, we expect this thread to untrack itself
@@ -110,7 +112,7 @@ withKillThese settings fun = do
                      info $ Killing tid
                      killThread tid
                   ) threadSet
-        res <- timeout (csTimeout settings) $ waitTillClean threads
+        res <- timeout (csTimeout settings) $ waitTillClean settings threads
         case res of
           Nothing -> do
             info TimeOut
@@ -119,14 +121,18 @@ withKillThese settings fun = do
 
   where
     info :: LogMsg -> IO ()
-    info msg = do
-      yield
-      csLogger settings msg
+    info = csLogger settings
 
-waitTillClean :: TVar (Set ThreadId) -> IO ()
-waitTillClean x = do
+waitTillClean :: CtrlCSettings -> TVar (Set ThreadId) -> IO ()
+waitTillClean settings x = do
   curVal <- readTVarIO x
-  if curVal == mempty then pure () else waitTillClean x
+  info $ WaitingFor curVal
+  if curVal == mempty
+    then pure ()
+    else waitTillClean settings x
+  where
+    info :: LogMsg -> IO ()
+    info = csLogger settings
 
 newtype SignalException = SignalException Signal
   deriving (Show, Typeable)

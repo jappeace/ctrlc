@@ -4,7 +4,12 @@
 [![Jappiejappie](https://img.shields.io/badge/discord-jappiejappie-black?logo=discord)](https://discord.gg/Hp4agqy)
 
 **Warning** This is a WIP, the test show that this doesn't quite work as expected.
+I confirmed a deadlock situation.
++ https://www.fpcomplete.com/blog/2016/06/async-exceptions-stm-deadlocks/
++ https://www.microsoft.com/en-us/research/wp-content/uploads/2005/01/2005-ppopp-composable.pdf
 
 Manages thread cleanup for exiting a program.
 Tries to codify the ideas from: https://ro-che.info/articles/2014-07-30-bracket#bracket-in-non-main-threads
+
+
 
