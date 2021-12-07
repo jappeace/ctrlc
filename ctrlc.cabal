@@ -52,7 +52,8 @@ library
       TypeApplications
   ghc-options: -Wall -Wcompat -Wincomplete-uni-patterns -Wredundant-constraints -Wincomplete-record-updates -Widentities -Wcpp-undef -fwarn-tabs -Wpartial-fields
   build-depends:
-      base >=4.7 && <5
+      async
+    , base >=4.7 && <5
     , containers
     , stm
     , unix
@@ -87,7 +88,8 @@ test-suite unit
       TypeApplications
   ghc-options: -Wall -Wcompat -Wincomplete-uni-patterns -Wredundant-constraints -Wincomplete-record-updates -Widentities -Wcpp-undef -fwarn-tabs -Wpartial-fields -threaded -rtsopts -with-rtsopts=-N
   build-depends:
-      base >=4.7 && <5
+      async
+    , base >=4.7 && <5
     , containers
     , ctrlc
     , stm

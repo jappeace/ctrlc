@@ -1,5 +1,3 @@
-{-# LANGUAGE RecursiveDo #-}
-
 -- TODO write a test for this: https://ro-che.info/articles/2014-07-30-bracket#bracket-in-non-main-threads
 -- | Deal with ctrl c events nicely.
 --   don't just kill the main thread, kill every other registered thread as well.
@@ -18,9 +16,11 @@ module CtrlC
   )
 where
 
-import qualified Data.Set as Set
+import qualified Data.Map as Map
+import Control.Concurrent.STM.TChan
 import Data.Foldable
 import Control.Exception
+import Data.Map(Map)
 import Data.Set(Set)
 import Control.Monad.STM
 import Control.Concurrent.STM.TVar
@@ -29,6 +29,9 @@ import System.Timeout
 import Data.Typeable (Typeable)
 import System.Posix.Signals
 import System.Mem.Weak (deRefWeak)
+import Control.Concurrent.Async(Async,async, wait, asyncThreadId, cancel)
+import Control.Concurrent.STM.TQueue
+import Data.Monoid (Endo(..), appEndo)
 
 data LogMsg = ExitedGracefully
             | TimeOut
@@ -52,7 +55,9 @@ printLogger :: LogMsg -> IO ()
 printLogger = putStrLn . toString
 
 data CtrlCState = MkCtrlCState {
-    ccsTrackedThreads :: TVar (Set ThreadId) -- excluding the main thread
+  -- yup this isn't great, I guess v2 would have another worker thread blocking on the queue
+  -- and doing the modification of cstate
+    ccsTrackedThreads :: TQueue (Map ThreadId (Async ()) -> Map ThreadId (Async ())) -- excluding the main thread
 }
 data CtrlCSettings = MkCtrlCSettings {
     csTimeout :: Int -- ^ in microseconds (1/10^6 seconds), prevents infinite blocking, smaller then 0 means no timeout
@@ -64,20 +69,20 @@ defSettings = MkCtrlCSettings 2000000 defLogger
 
 -- | this will fork out a thread that is already tracked by CtrlCState,
 --   it also has the untrack handler attached.
-forkTracked :: CtrlCState -> IO () -> IO ThreadId
+forkTracked :: CtrlCState -> IO () -> IO (Async ())
 forkTracked state io = do
-  mask $ \restore -> mdo -- if you want to fork..
-    tid <- restore $ forkIO $ do -- restore the subthread
-        io `finally` do
-          mask $ \_ -> (atomically $ untrack state tid)
+  mask $ \restore -> do -- if you want to fork..
+    tid <- restore $ async $ restore io
+    restore $ forkIO $ -- this allows us to provide Async to the user, while we also wait on it
+                wait tid `finally` atomically (untrack state $ asyncThreadId tid)
     atomically $ track state tid -- but we need to not except here
     pure tid
 
 -- | Starts tracking a thread, we expect this thread to untrack itself
 --   to indicate it is done with cleaning up.
-track :: CtrlCState -> ThreadId -> STM ()
+track :: CtrlCState -> Async () -> STM ()
 track state tid =
-  modifyTVar tvar (Set.insert tid)
+  writeTQueue tvar (Map.insert (asyncThreadId tid) tid)
   where
     tvar = ccsTrackedThreads state
 
@@ -85,7 +90,7 @@ track state tid =
 --   All tracked threads should call this when they're done.
 untrack :: CtrlCState -> ThreadId -> STM ()
 untrack state tid =
-  modifyTVar tvar (Set.delete tid)
+  writeTQueue tvar (Map.delete tid)
   where
     tvar = ccsTrackedThreads state
 
@@ -99,19 +104,24 @@ untrack state tid =
 --   state can then be used to fork out new threads that are watched.
 withKillThese :: CtrlCSettings -> (CtrlCState -> IO ()) -> IO ()
 withKillThese settings fun = do
-  threads <- newTVarIO mempty
+  threads <- newTQueueIO
   mask $ \restore -> do
     restore (fun $ MkCtrlCState
                 { ccsTrackedThreads = threads
       }) `finally` do
         info StartedKilling
-        threadSet <- readTVarIO threads
-        info $ KillingSet threadSet
-        traverse_ (\tid -> do
+        opList <- atomically $ flushTQueue threads
+        let threadMap :: Map ThreadId (Async ())
+            threadMap  = appEndo (foldMap Endo opList) mempty
+        info $ KillingSet $ Map.keysSet threadMap
+        -- this does not block
+        traverse_ (\asyncH -> do
+                     let tid = asyncThreadId asyncH
                      info $ Killing tid
                      killThread tid
-                  ) threadSet
-        res <- timeout (csTimeout settings) $ waitTillClean settings threads
+                  ) threadMap
+        -- this does block, hence timeout
+        res <- timeout (csTimeout settings) $ traverse_ cancel threadMap
         case res of
           Nothing -> do
             info TimeOut
@@ -122,16 +132,6 @@ withKillThese settings fun = do
     info :: LogMsg -> IO ()
     info = csLogger settings
 
-waitTillClean :: CtrlCSettings -> TVar (Set ThreadId) -> IO ()
-waitTillClean settings x = do
-  curVal <- readTVarIO x
-  info $ WaitingFor curVal
-  if curVal == mempty
-    then pure ()
-    else waitTillClean settings x
-  where
-    info :: LogMsg -> IO ()
-    info = csLogger settings
 
 newtype SignalException = SignalException Signal
   deriving (Show, Typeable)

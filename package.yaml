@@ -54,6 +54,7 @@ dependencies:
 - containers
 - stm
 - unix
+- async
 
 library:
   source-dirs: src
