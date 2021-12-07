@@ -95,6 +95,5 @@ test-suite unit
     , tasty-expected-failure
     , tasty-hunit
     , tasty-quickcheck
-    , template
     , unix
   default-language: Haskell2010

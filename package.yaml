@@ -69,7 +69,6 @@ tests:
     - tasty-quickcheck
     - tasty-hunit
     - tasty-expected-failure 
-    - template
 
     ghc-options:
     - -threaded

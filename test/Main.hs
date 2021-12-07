@@ -35,7 +35,7 @@ unitTests = testGroup "Thread cleanup"
 
   -- the following test does not hold
   , testGroup "With ctrl c the thread should be allowed to cleanup " $ (\x ->
-      testCase ("number: " <> show x) (killTest awwaitThenSet)) <$> [0..200]
+      testCase ("number: " <> show x) (killTest awwaitThenSet)) <$> [0..100]
 
   , ignoreTestBecause "This will loop forever, the exception doesn't appear to arrive" $
     testCase "With ctrl c the thread should be allowed to cleanup with pure" $
