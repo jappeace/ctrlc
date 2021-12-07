@@ -1,3 +1,5 @@
+{-# LANGUAGE RecursiveDo #-}
+
 -- TODO write a test for this: https://ro-che.info/articles/2014-07-30-bracket#bracket-in-non-main-threads
 -- | Deal with ctrl c events nicely.
 --   don't just kill the main thread, kill every other registered thread as well.
@@ -64,14 +66,11 @@ defSettings = MkCtrlCSettings 2000000 defLogger
 --   it also has the untrack handler attached.
 forkTracked :: CtrlCState -> IO () -> IO ThreadId
 forkTracked state io = do
-  mvar <- newEmptyMVar
-  mask $ \restore -> do -- if you want to fork..
+  mask $ \restore -> mdo -- if you want to fork..
     tid <- restore $ forkIO $ do -- restore the subthread
         io `finally` do
-          tid' <- takeMVar mvar
-          atomically $ untrack state tid'
+          mask $ \_ -> (atomically $ untrack state tid)
     atomically $ track state tid -- but we need to not except here
-    putMVar mvar tid
     pure tid
 
 -- | Starts tracking a thread, we expect this thread to untrack itself
