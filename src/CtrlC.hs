@@ -29,7 +29,7 @@ import System.Timeout
 import Data.Typeable (Typeable)
 import System.Posix.Signals
 import System.Mem.Weak (deRefWeak)
-import Control.Concurrent.Async(Async,async, wait, asyncThreadId, cancel)
+import Control.Concurrent.Async(Async,async, wait, asyncThreadId, cancel, waitCatch)
 import Control.Concurrent.STM.TQueue
 import Data.Monoid (Endo(..), appEndo)
 
@@ -37,7 +37,7 @@ data LogMsg = ExitedGracefully
             | TimeOut
             | Killing ThreadId
             | KillingSet (Set ThreadId)
-            | WaitingFor (Set ThreadId)
+            | WaitingFor ThreadId
             | StartedKilling
 
 defLogger :: LogMsg -> IO ()
@@ -121,7 +121,11 @@ withKillThese settings fun = do
                      killThread tid
                   ) threadMap
         -- this does block, hence timeout
-        res <- timeout (csTimeout settings) $ traverse_ cancel threadMap
+        res <- timeout (csTimeout settings) $
+          traverse_ (\tid -> do
+                    info $ WaitingFor $ asyncThreadId tid
+                    waitCatch tid
+                    ) threadMap
         case res of
           Nothing -> do
             info TimeOut

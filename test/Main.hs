@@ -11,6 +11,9 @@ import           System.Timeout
 import           Test.Tasty
 import           Test.Tasty.ExpectedFailure
 import           Test.Tasty.HUnit
+import Control.Concurrent.STM.TVar
+import GHC.Conc(atomically)
+
 
 main :: IO ()
 main = defaultMain unitTests
@@ -18,7 +21,7 @@ main = defaultMain unitTests
 unitTests :: TestTree
 unitTests = testGroup "Thread cleanup"
   [ testCase "ForkIO doesn't cleanup" $ do
-      mvar <- newEmptyMVar
+      mvar <- newTVarIO False
       setMvarThreadId <- forkIO $ do
             -- forking twice is the behavior we want, the thread with
             -- setMVarId is emulating the main thread
@@ -30,8 +33,8 @@ unitTests = testGroup "Thread cleanup"
       threadDelay 0_100_000 -- 0.1 second
       killThread setMvarThreadId
 
-      res <- timeout testTime $ takeMVar mvar
-      Nothing @=? res
+      res <- timeout testTime $ readTVarIO mvar
+      Just False @=? res
 
   -- the following test does not hold
   , testGroup "With ctrl c the thread should be allowed to cleanup " $ (\x ->
@@ -42,13 +45,13 @@ unitTests = testGroup "Thread cleanup"
       killTest $ awwaitThenSet' (pure ())
   ] -- TODO write a test for this: https://ro-che.info/articles/2014-07-30-bracket#bracket-in-non-main-threads
 
-killTest  :: (MVar Bool ->  IO ()) -> IO ()
+killTest  :: (TVar Bool ->  IO ()) -> IO ()
 killTest  fun = do
   res <- timeout ultimateTimeout $ do
-      mvar <- newEmptyMVar
+      mvar <- newTVarIO False
       setMvarThreadId <- forkIO $ do
           withKillThese (defSettings
-                          {csLogger = printLogger}
+                          -- {csLogger = printLogger}
                           -- {csTimeout = 0_200_000 }
                         ) $ \cstate -> do
             void $ forkTracked cstate $ fun mvar
@@ -57,8 +60,8 @@ killTest  fun = do
       threadDelay 0_100_000 -- 0.1 second
       killThread setMvarThreadId
 
-      res <- timeout testTime $ takeMVar mvar
-      Just True @=? res
+      res <- timeout testTime $ readTVarIO mvar
+      assertEqual "If these aren't equal the bracket wasn't closed correctly" (Just True) res
   assertEqual "if this is false, the entire test blocked on something" (Just ()) res
 
 
@@ -71,12 +74,15 @@ testTime = setTime + setTime
 ultimateTimeout :: Int
 ultimateTimeout = 1_000_000
 
-awwaitThenSet' :: IO () -> MVar Bool ->  IO ()
+awwaitThenSet' :: IO () -> TVar Bool ->  IO ()
 awwaitThenSet' fun mvar =
            bracket (pure mvar) (\x -> do
-              threadDelay setTime -- 2 seconds
-              putMVar x True
+              putStrLn "cleaning up"
+              -- threadDelay setTime -- 2 seconds
+              -- yield
+              putStrLn "write res"
+              atomically $ writeTVar x True
             ) (const $ forever fun)
 
-awwaitThenSet :: MVar Bool -> IO ()
+awwaitThenSet :: TVar Bool -> IO ()
 awwaitThenSet mvar = awwaitThenSet' yield mvar

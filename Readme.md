@@ -12,4 +12,12 @@ Manages thread cleanup for exiting a program.
 Tries to codify the ideas from: https://ro-che.info/articles/2014-07-30-bracket#bracket-in-non-main-threads
 
 
+I think some tests start failing because with printlogger they all start waiting on the buffer to flush
+so they fail togehter, whereas other succeed together.
+
+with timeout it all fails?! 
+
+I rewrote it to use the stm and async libs directly.
+the queue is a pretty crummy idea but it simplifies things.
+async allows me to use their waiting logic.
 
