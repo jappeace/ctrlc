@@ -38,7 +38,7 @@ unitTests = testGroup "Thread cleanup"
 
   -- the following test does not hold
   , testGroup "With ctrl c the thread should be allowed to cleanup " $ (\x ->
-      testCase ("number: " <> show x) (killTest awwaitThenSet)) <$> [0..100]
+      testCase ("number: " <> show x) (killTest awwaitThenSet)) <$> [0..10]
 
   , ignoreTestBecause "This will loop forever, the exception doesn't appear to arrive" $
     testCase "With ctrl c the thread should be allowed to cleanup with pure" $
@@ -49,16 +49,15 @@ killTest  :: (TVar Bool ->  IO ()) -> IO ()
 killTest  fun = do
   res <- timeout ultimateTimeout $ do
       mvar <- newTVarIO False
-      setMvarThreadId <- forkIO $ do
-          withKillThese (defSettings
+      withKillThese (defSettings
                           -- {csLogger = printLogger}
-                          -- {csTimeout = 0_200_000 }
+                          {csTimeout = 0_200_000 }
                         ) $ \cstate -> do
-            void $ forkTracked cstate $ fun mvar
+        setMvarThreadId <- forkTracked cstate $ fun mvar
 
-      -- allow set mvar thread to be forked
-      threadDelay 0_100_000 -- 0.1 second
-      killThread setMvarThreadId
+        -- allow set mvar thread to be forked
+        threadDelay 0_100_000 -- 0.1 second
+        killThread setMvarThreadId
 
       res <- timeout testTime $ readTVarIO mvar
       assertEqual "If these aren't equal the bracket wasn't closed correctly" (Just True) res
