@@ -82,13 +82,17 @@ defSettings = MkCtrlCSettings 2000000 defLogger
 --   it also has the untrack handler attached.
 forkTracked :: CtrlCState -> IO () -> IO ThreadId
 forkTracked state io =
-    forkIO $ do
+    forkIO $ mask $ \restore -> do
       tid <- myThreadId
       info $ Tracking tid
       atomically $ track state tid
-      io `finally` do
-        info $ Untracking tid
-        atomically (untrack state tid)
+      eres <- try (restore io)
+      case eres of
+        Left e -> do
+          info $ Untracking tid
+          atomically (untrack state tid)
+          throwIO (e :: SomeException)
+        Right x -> pure x
   where
     info :: LogMsg -> IO ()
     info = csLogger (ccsSettings state)
@@ -126,14 +130,6 @@ withKillThese settings fun = do
                 , ccsSettings = settings
       }) `finally` do
         info StartedKilling
-        killSet <- readTVarIO threads
-        info $ KillingSet killSet
-        -- this does not block
-        traverse_ (\tid -> do
-                     info $ Killing tid
-                     killThread tid
-                  ) killSet
-        -- this does block, hence timeout
         res <- timeout (csTimeout settings) $ waitTillEmpty info threads
         case res of
           Nothing -> do
@@ -148,6 +144,12 @@ withKillThese settings fun = do
 waitTillEmpty :: (LogMsg -> IO ()) -> TVar (Set ThreadId) -> IO ()
 waitTillEmpty info threads = do
     trackedThreads <- readTVarIO threads
+    info $ KillingSet trackedThreads
+    -- this does not block
+    traverse_ (\tid -> do -- we keep on sending exceptions
+                     info $ Killing tid
+                     killThread tid
+                  ) trackedThreads
     info $ WaitingFor trackedThreads
     unless (trackedThreads == mempty) $ do
       threadDelay 0_000_001

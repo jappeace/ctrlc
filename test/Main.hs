@@ -38,7 +38,7 @@ unitTests = testGroup "Thread cleanup"
 
   -- the following test does not hold
   , testGroup "With ctrl c the thread should be allowed to cleanup " $ (\x ->
-      testCase ("number: " <> show x) (killTest awwaitThenSet)) <$> [0..10]
+      testCase ("number: " <> show x) (killTest awwaitThenSet)) <$> [0..100]
 
   , ignoreTestBecause "This will loop forever, the exception doesn't appear to arrive" $
     testCase "With ctrl c the thread should be allowed to cleanup with pure" $
@@ -53,12 +53,11 @@ killTest  fun = do
       -- the mvar starts as false
       mvar <- newTVarIO False
       mainTid <- forkIO $ withKillThese (defSettings
-                          {csLogger = printLogger}
+                          -- {csLogger = printLogger}
                           -- {csTimeout = 0_200_000 }
                         ) $ \cstate -> do
         -- we track the thread
         void $ forkTracked cstate $ fun mvar
-
 
       threadDelay 0_100_000 -- 0.1 second
       killThread mainTid
@@ -83,9 +82,10 @@ awwaitThenSet' fun mvar =
               -- putStrLn "cleaning up"
               -- threadDelay setTime -- 2 seconds
               -- yield
-              -- putStrLn "write res"
+              -- putStrLn ""
               atomically $ writeTVar x True
             ) (const $ forever fun)
 
 awwaitThenSet :: TVar Bool -> IO ()
-awwaitThenSet mvar = awwaitThenSet' yield mvar
+awwaitThenSet mvar = awwaitThenSet' (do
+                                        threadDelay 0_000_001) mvar
