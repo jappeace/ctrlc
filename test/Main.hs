@@ -45,19 +45,23 @@ unitTests = testGroup "Thread cleanup"
       killTest $ awwaitThenSet' (pure ())
   ] -- TODO write a test for this: https://ro-che.info/articles/2014-07-30-bracket#bracket-in-non-main-threads
 
+-- I think I iddin't do the case where the main thread gets killed
+-- which kills all children
 killTest  :: (TVar Bool ->  IO ()) -> IO ()
 killTest  fun = do
   res <- timeout ultimateTimeout $ do
+      -- the mvar starts as false
       mvar <- newTVarIO False
-      withKillThese (defSettings
-                          -- {csLogger = printLogger}
-                          {csTimeout = 0_200_000 }
+      mainTid <- forkIO $ withKillThese (defSettings
+                          {csLogger = printLogger}
+                          -- {csTimeout = 0_200_000 }
                         ) $ \cstate -> do
-        setMvarThreadId <- forkTracked cstate $ fun mvar
+        -- we track the thread
+        void $ forkTracked cstate $ fun mvar
 
-        -- allow set mvar thread to be forked
-        threadDelay 0_100_000 -- 0.1 second
-        killThread setMvarThreadId
+
+      threadDelay 0_100_000 -- 0.1 second
+      killThread mainTid
 
       res <- timeout testTime $ readTVarIO mvar
       assertEqual "If these aren't equal the bracket wasn't closed correctly" (Just True) res
@@ -76,10 +80,10 @@ ultimateTimeout = 1_000_000
 awwaitThenSet' :: IO () -> TVar Bool ->  IO ()
 awwaitThenSet' fun mvar =
            bracket (pure mvar) (\x -> do
-              putStrLn "cleaning up"
+              -- putStrLn "cleaning up"
               -- threadDelay setTime -- 2 seconds
               -- yield
-              putStrLn "write res"
+              -- putStrLn "write res"
               atomically $ writeTVar x True
             ) (const $ forever fun)
 

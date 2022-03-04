@@ -1,7 +1,11 @@
+{-# LANGUAGE NumericUnderscores #-}
 -- TODO write a test for this: https://ro-che.info/articles/2014-07-30-bracket#bracket-in-non-main-threads
 -- | Deal with ctrl c events nicely.
 --   don't just kill the main thread, kill every other registered thread as well.
 -- https://ro-che.info/articles/2014-07-30-bracket
+--
+-- bitch: https://www.fpcomplete.com/blog/2018/04/async-exception-handling-haskell/
+-- bitch II: https://simonmar.github.io/posts/2017-01-24-asynchronous-exceptions.html
 module CtrlC
   ( withKillThese
   , CtrlCSettings(..)
@@ -38,6 +42,8 @@ import Data.Monoid (Endo(..), appEndo)
 data LogMsg = ExitedGracefully
             | TimeOut
             | Killing ThreadId
+            | Tracking ThreadId
+            | Untracking ThreadId
             | KillingSet (Set ThreadId)
             | WaitingFor (Set ThreadId)
             | StartedKilling
@@ -49,6 +55,8 @@ toString :: LogMsg -> String
 toString ExitedGracefully = "CtrlC: ExitedGracefully"
 toString TimeOut = "CtrlC: TimeOut"
 toString (Killing tid) = "CtrlC: Killing " <> show tid
+toString (Tracking tid) = "CtrlC: Tracking" <> show tid
+toString (Untracking tid) = "CtrlC: Untracking" <> show tid
 toString (KillingSet tset) = "CtrlC: Killing set " <> show tset
 toString StartedKilling = "CtrlC: Started Killing"
 toString (WaitingFor tset) = "CtrlC: Waiting for these threads to untrack themselves to indicate dying gracefully " <> show tset
@@ -60,6 +68,7 @@ data CtrlCState = MkCtrlCState {
   -- yup this isn't great, I guess v2 would have another worker thread blocking on the queue
   -- and doing the modification of cstate
     ccsTrackedThreads :: TVar (Set ThreadId) -- ^ excluding the main thread
+  , ccsSettings :: CtrlCSettings
 }
 data CtrlCSettings = MkCtrlCSettings {
     csTimeout :: Int -- ^ in microseconds (1/10^6 seconds), prevents infinite blocking, smaller then 0 means no timeout
@@ -75,8 +84,14 @@ forkTracked :: CtrlCState -> IO () -> IO ThreadId
 forkTracked state io =
     forkIO $ do
       tid <- myThreadId
+      info $ Tracking tid
       atomically $ track state tid
-      io `finally` atomically (untrack state tid)
+      io `finally` do
+        info $ Untracking tid
+        atomically (untrack state tid)
+  where
+    info :: LogMsg -> IO ()
+    info = csLogger (ccsSettings state)
 
 -- | Starts tracking a thread, we expect this thread to untrack itself
 --   to indicate it is done with cleaning up.
@@ -108,6 +123,7 @@ withKillThese settings fun = do
   mask $ \restore -> do
     restore (fun $ MkCtrlCState
                 { ccsTrackedThreads = threads
+                , ccsSettings = settings
       }) `finally` do
         info StartedKilling
         killSet <- readTVarIO threads
@@ -133,7 +149,9 @@ waitTillEmpty :: (LogMsg -> IO ()) -> TVar (Set ThreadId) -> IO ()
 waitTillEmpty info threads = do
     trackedThreads <- readTVarIO threads
     info $ WaitingFor trackedThreads
-    unless (trackedThreads == mempty) $ waitTillEmpty info threads
+    unless (trackedThreads == mempty) $ do
+      threadDelay 0_000_001
+      waitTillEmpty info threads
 
 newtype SignalException = SignalException Signal
   deriving (Show, Typeable)
