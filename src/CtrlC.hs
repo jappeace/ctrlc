@@ -1,4 +1,5 @@
 {-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 -- TODO write a test for this: https://ro-che.info/articles/2014-07-30-bracket#bracket-in-non-main-threads
 -- | Deal with ctrl c events nicely.
 --   don't just kill the main thread, kill every other registered thread as well.
@@ -81,18 +82,20 @@ defSettings = MkCtrlCSettings 2000000 defLogger
 -- | this will fork out a thread that is already tracked by CtrlCState,
 --   it also has the untrack handler attached.
 forkTracked :: CtrlCState -> IO () -> IO ThreadId
-forkTracked state io =
-    forkIO $ mask $ \restore -> do
+forkTracked state io = mask $ \restore -> do
+    waitVar <- newEmptyMVar -- we only return after this is set, eg we know about this thread in global state
+    forkIO $ do
       tid <- myThreadId
       info $ Tracking tid
       atomically $ track state tid
+      putMVar waitVar tid
       eres <- try (restore io)
       case eres of
-        Left e -> do
+        Left (e :: SomeException) -> do
           info $ Untracking tid
           atomically (untrack state tid)
-          throwIO (e :: SomeException)
         Right x -> pure x
+    takeMVar waitVar
   where
     info :: LogMsg -> IO ()
     info = csLogger (ccsSettings state)

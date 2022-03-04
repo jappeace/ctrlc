@@ -38,7 +38,7 @@ unitTests = testGroup "Thread cleanup"
 
   -- the following test does not hold
   , testGroup "With ctrl c the thread should be allowed to cleanup " $ (\x ->
-      testCase ("number: " <> show x) (killTest awwaitThenSet)) <$> [0..100]
+      testCase ("number: " <> show x) (killTest awwaitThenSet)) <$> [0..1000]
 
   , ignoreTestBecause "This will loop forever, the exception doesn't appear to arrive" $
     testCase "With ctrl c the thread should be allowed to cleanup with pure" $
@@ -88,4 +88,4 @@ awwaitThenSet' fun mvar =
 
 awwaitThenSet :: TVar Bool -> IO ()
 awwaitThenSet mvar = awwaitThenSet' (do
-                                        threadDelay 0_000_001) mvar
+                                        yield) mvar
