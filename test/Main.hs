@@ -22,7 +22,7 @@ main = defaultMain unitTests
 
 unitTests :: TestTree
 unitTests = testGroup "Thread cleanup"
-  [ testCase "ForkIO doesn't cleanup" $ do
+  [ ignoreTestBecause "experimenting with betterpure" $ testCase "ForkIO doesn't cleanup" $ do
       mvar <- newTVarIO False
       setMvarThreadId <- forkIO $ do
             -- forking twice is the behavior we want, the thread with
@@ -39,24 +39,40 @@ unitTests = testGroup "Thread cleanup"
       Just False @=? res
 
   -- the following test does not hold
-  , testGroup "With ctrl c the thread should be allowed to cleanup " $ (\x ->
-      testCase ("number: " <> show x) (killTest awwaitThenSet)) <$> [0..1000]
+  , ignoreTestBecause "experimenting with betterpure" $
+    testGroup "With ctrl c the thread should be allowed to cleanup " $ (\x ->
+      testCase ("number: " <> show x) (killTest awwaitThenSet)) <$> [0..0]
 
-  , ignoreTestBecause "This will loop forever, the exception doesn't appear to arrive" $
-    testCase "With ctrl c the thread should be allowed to cleanup with pure" $
-      killTest $ awwaitThenSet' (pure ())
+  -- , ignoreTestBecause "This will loop forever, the exception doesn't appear to arrive" $
+  ,
+    ignoreTestBecause "experimenting with betterpure" $ testCase "With ctrl c the thread should be allowed to cleanup with pure" $
+      killTest $ awwaitThenSet' (betterPure)
+  , testCase "block me bitch"  $ minimal
   ] -- TODO write a test for this: https://ro-che.info/articles/2014-07-30-bracket#bracket-in-non-main-threads
+
+
+{-# NOINLINE betterPure #-}
+betterPure :: IO ()
+betterPure = pure ()
+
+minimal :: IO ()
+minimal = do
+  waitVar <- newEmptyMVar
+  x <- forkIO $
+    bracket (pure ()) (\_ -> putMVar waitVar ()) $ forever $ pure ()
+  killThread x
+  takeMVar waitVar
 
 -- I think I iddin't do the case where the main thread gets killed
 -- which kills all children
 killTest  :: (TVar Bool ->  IO ()) -> IO ()
 killTest  fun = do
-  res <- timeout ultimateTimeout $ do
+  res <- timeout ultimateTimeout $ withFastLogger (LogStderr 1) $ \logger -> do
       -- the mvar starts as false
       mvar <- newTVarIO False
 
       mainTid <- forkIO $
-          withFastLogger (LogStderr defaultBufSize) $ \logger ->
+
           withKillThese (defSettings
                           {csLogger = logger . toLogStr . Text.pack . toString}
                           -- {csTimeout = 0_200_000 }
@@ -64,9 +80,12 @@ killTest  fun = do
         -- we track the thread
         void $ forkTracked cstate $ fun mvar
 
+      logger "waiting"
       threadDelay 0_100_000 -- 0.1 second
+      logger "killing main"
       killThread mainTid
 
+      logger "reading tvar"
       res <- timeout testTime $ readTVarIO mvar
       assertEqual "If these aren't equal the bracket wasn't closed correctly" (Just True) res
   assertEqual "if this is false, the entire test blocked on something" (Just ()) res
