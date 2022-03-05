@@ -16,8 +16,8 @@ module CtrlC
   , untrack
   , installSignalHandlers
   , SignalException(..)
-  , printLogger
   , defLogger
+  , toString
   )
 where
 
@@ -61,9 +61,6 @@ toString (Untracking tid) = "CtrlC: Untracking" <> show tid
 toString (KillingSet tset) = "CtrlC: Killing set " <> show tset
 toString StartedKilling = "CtrlC: Started Killing"
 toString (WaitingFor tset) = "CtrlC: Waiting for these threads to untrack themselves to indicate dying gracefully " <> show tset
-
-printLogger :: LogMsg -> IO ()
-printLogger = putStrLn . toString
 
 data CtrlCState = MkCtrlCState {
   -- yup this isn't great, I guess v2 would have another worker thread blocking on the queue

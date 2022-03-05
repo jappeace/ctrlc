@@ -5,14 +5,16 @@ module Main where
 import           Control.Concurrent
 import           Control.Exception          (bracket)
 import           Control.Monad
-import           CtrlC                      (defSettings, forkTracked, csLogger, printLogger,
-                                             withKillThese, csTimeout )
+import           CtrlC                      (defSettings, forkTracked, csLogger,
+                                             withKillThese, csTimeout , toString)
 import           System.Timeout
 import           Test.Tasty
 import           Test.Tasty.ExpectedFailure
 import           Test.Tasty.HUnit
 import Control.Concurrent.STM.TVar
 import GHC.Conc(atomically)
+import qualified Data.Text as Text
+import System.Log.FastLogger
 
 
 main :: IO ()
@@ -52,8 +54,11 @@ killTest  fun = do
   res <- timeout ultimateTimeout $ do
       -- the mvar starts as false
       mvar <- newTVarIO False
-      mainTid <- forkIO $ withKillThese (defSettings
-                          -- {csLogger = printLogger}
+
+      mainTid <- forkIO $
+          withFastLogger (LogStderr defaultBufSize) $ \logger ->
+          withKillThese (defSettings
+                          {csLogger = logger . toLogStr . Text.pack . toString}
                           -- {csTimeout = 0_200_000 }
                         ) $ \cstate -> do
         -- we track the thread

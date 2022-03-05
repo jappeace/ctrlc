@@ -70,6 +70,8 @@ tests:
     - tasty-quickcheck
     - tasty-hunit
     - tasty-expected-failure 
+    - fast-logger
+    - text
 
     ghc-options:
     - -threaded
