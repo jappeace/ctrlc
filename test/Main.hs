@@ -2,26 +2,31 @@
 
 module Main where
 
+import System.Random
 import           Control.Concurrent
 import           Control.Exception          (bracket)
 import           Control.Monad
-import           CtrlC                      (defSettings, forkTracked, csLogger, printLogger,
-                                             withKillThese, csTimeout )
+import           CtrlC                      (defSettings, forkTracked, csLogger,
+                                             withKillThese, csTimeout , toString)
 import           System.Timeout
 import           Test.Tasty
 import           Test.Tasty.ExpectedFailure
 import           Test.Tasty.HUnit
 import Control.Concurrent.STM.TVar
 import GHC.Conc(atomically)
+import qualified Data.Text as Text
+import System.Log.FastLogger
 
 
 main :: IO ()
-main = defaultMain unitTests
+main = defaultMainWithIngredients
+  defaultIngredients
+  unitTests
 
 unitTests :: TestTree
 unitTests = testGroup "Thread cleanup"
   [ testCase "ForkIO doesn't cleanup" $ do
-      mvar <- newTVarIO False
+      mvar <- newEmptyMVar
       setMvarThreadId <- forkIO $ do
             -- forking twice is the behavior we want, the thread with
             -- setMVarId is emulating the main thread
@@ -33,56 +38,122 @@ unitTests = testGroup "Thread cleanup"
       threadDelay 0_100_000 -- 0.1 second
       killThread setMvarThreadId
 
-      res <- timeout testTime $ readTVarIO mvar
-      Just False @=? res
+      res <- timeout testTime $ readMVar mvar
+      Nothing @=? res
+
+  , testCase "Double kill is alright" $ do
+      tid <- forkIO $ do
+        threadDelay 0_200_000 -- 0.1 second
+      threadDelay 0_100_000 -- 0.1 second
+      killThread tid
+      killThread tid
+
+  -- , testCase "FREEZE " $ do
 
   -- the following test does not hold
   , testGroup "With ctrl c the thread should be allowed to cleanup " $ (\x ->
-      testCase ("number: " <> show x) (killTest awwaitThenSet)) <$> [0..100]
+      testCase ("number: " <> show x) (killTest x awwaitThenSet)) <$> [0..10000] -- 100 times detects
 
-  , ignoreTestBecause "This will loop forever, the exception doesn't appear to arrive" $
-    testCase "With ctrl c the thread should be allowed to cleanup with pure" $
-      killTest $ awwaitThenSet' (pure ())
+  -- , ignoreTestBecause "This will loop forever, the exception doesn't appear to arrive" $
+  -- , testCase "block me bitch"  $ minimal
+  ,
+    ignoreTestBecause "blocks forever, makes the test process wonky (need to kill with -9)" $
+    testGroup "forever pure investigation"
+      [ testCase "block mystery "  blockForever2
+      , testCase "block me minimal"  blockMinimal
+      , testCase "discovered case ( minified) originally found when writing tests)"  blockDiscovered
+      , testCase "og block forever, With ctrl c the thread should be allowed to cleanup with pure" $
+          killTest 1 $ awwaitThenSet' (pure ())
+    ]
   ] -- TODO write a test for this: https://ro-che.info/articles/2014-07-30-bracket#bracket-in-non-main-threads
 
-killTest  :: (TVar Bool ->  IO ()) -> IO ()
-killTest  fun = do
-  res <- timeout ultimateTimeout $ do
-      mvar <- newTVarIO False
-      setMvarThreadId <- forkIO $ do
+-- I've no idea why this blocks forever
+-- I initially suspected a global state between throwTo calls
+-- but now it looks like it's blocking because an unrelated pure thread
+-- was forked of
+blockForever2 :: IO ()
+blockForever2 = do
+  putStrLn "start the threads"
+  _ <- forkIO $ do
+    tid2 <- forkIO $ forever $ pure ()
+    threadDelay 0_100_000 -- 0.1 second
+    print tid2
+    -- killThread tid2
+  putStrLn "start the sacrfice"
+  tid <- forkIO $ do
+
+    forever $ do
+      x <- randomIO
+      putStrLn (x : "kill m all")
+    threadDelay 10_000_000 -- 10 seconds
+  print tid
+  threadDelay 0_200_000 -- 0.2 second
+  putStrLn "kill them all"
+  killThread tid
+
+blockMinimal :: IO ()
+blockMinimal = do
+  tid <- forkIO $ forever $ pure ()
+  threadDelay 0_100_000 -- 0.1 second
+  killThread tid
+
+
+blockDiscovered :: IO ()
+blockDiscovered = do
+  waitVar <- newEmptyMVar
+  x <- forkIO $
+    bracket (pure ()) (\_ -> putMVar waitVar ()) $ forever $ pure ()
+  killThread x
+  takeMVar waitVar
+
+-- I think I iddin't do the case where the main thread gets killed
+-- which kills all children
+killTest  :: Int -> (MVar Bool ->  IO ()) -> IO ()
+killTest  testNr fun = do
+  res <- timeout ultimateTimeout $ withFastLogger (LogFile (FileLogSpec ("killtest-" <> show testNr) 16777216 4) 1) $ \logger -> do
+      -- the mvar starts as false
+      mvar <- newEmptyMVar
+      threadSync <- newEmptyMVar
+
+      mainTid <- forkIO $
+
           withKillThese (defSettings
-                          -- {csLogger = printLogger}
+                          {csLogger = logger . toLogStr . Text.pack . toString}
                           -- {csTimeout = 0_200_000 }
                         ) $ \cstate -> do
-            void $ forkTracked cstate $ fun mvar
+              -- we track the thread
+              void $ forkTracked cstate $ fun mvar
+              putMVar threadSync ()
 
-      -- allow set mvar thread to be forked
-      threadDelay 0_100_000 -- 0.1 second
-      killThread setMvarThreadId
+      logger "waiting"
+      readMVar threadSync
 
-      res <- timeout testTime $ readTVarIO mvar
+
+      logger "killing main"
+      killThread mainTid
+
+      logger "reading tvar"
+      res <- timeout testTime $ readMVar mvar
       assertEqual "If these aren't equal the bracket wasn't closed correctly" (Just True) res
   assertEqual "if this is false, the entire test blocked on something" (Just ()) res
 
 
-setTime :: Int
-setTime = 0_200_000
-
 testTime :: Int
-testTime = setTime + setTime
+testTime = 5_000_000
 
 ultimateTimeout :: Int
-ultimateTimeout = 1_000_000
+ultimateTimeout = 10_000_000
 
-awwaitThenSet' :: IO () -> TVar Bool ->  IO ()
+awwaitThenSet' :: IO () -> MVar Bool ->  IO ()
 awwaitThenSet' fun mvar =
            bracket (pure mvar) (\x -> do
-              putStrLn "cleaning up"
+              -- putStrLn "cleaning up"
               -- threadDelay setTime -- 2 seconds
               -- yield
-              putStrLn "write res"
-              atomically $ writeTVar x True
+              -- putStrLn ""
+              putMVar x True
             ) (const $ forever fun)
 
-awwaitThenSet :: TVar Bool -> IO ()
-awwaitThenSet mvar = awwaitThenSet' yield mvar
+awwaitThenSet :: MVar Bool -> IO ()
+awwaitThenSet mvar = awwaitThenSet' (do
+                                        yield) mvar
