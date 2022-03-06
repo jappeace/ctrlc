@@ -19,12 +19,14 @@ import System.Log.FastLogger
 
 
 main :: IO ()
-main = defaultMain unitTests
+main = defaultMainWithIngredients
+  defaultIngredients
+  unitTests
 
 unitTests :: TestTree
 unitTests = testGroup "Thread cleanup"
   [ testCase "ForkIO doesn't cleanup" $ do
-      mvar <- newTVarIO False
+      mvar <- newEmptyMVar
       setMvarThreadId <- forkIO $ do
             -- forking twice is the behavior we want, the thread with
             -- setMVarId is emulating the main thread
@@ -35,10 +37,9 @@ unitTests = testGroup "Thread cleanup"
       -- allow set mvar thread to be forked
       threadDelay 0_100_000 -- 0.1 second
       killThread setMvarThreadId
-      threadDelay 0_100_000 -- 0.1 second
 
-      res <- timeout testTime $ readTVarIO mvar
-      Just False @=? res
+      res <- timeout testTime $ readMVar mvar
+      Nothing @=? res
 
   , testCase "Double kill is alright" $ do
       tid <- forkIO $ do
@@ -51,7 +52,7 @@ unitTests = testGroup "Thread cleanup"
 
   -- the following test does not hold
   , testGroup "With ctrl c the thread should be allowed to cleanup " $ (\x ->
-      testCase ("number: " <> show x) (killTest awwaitThenSet)) <$> [0..100] -- 100 times detects
+      testCase ("number: " <> show x) (killTest x awwaitThenSet)) <$> [0..10000] -- 100 times detects
 
   -- , ignoreTestBecause "This will loop forever, the exception doesn't appear to arrive" $
   -- , testCase "block me bitch"  $ minimal
@@ -62,7 +63,7 @@ unitTests = testGroup "Thread cleanup"
       , testCase "block me minimal"  blockMinimal
       , testCase "discovered case ( minified) originally found when writing tests)"  blockDiscovered
       , testCase "og block forever, With ctrl c the thread should be allowed to cleanup with pure" $
-          killTest $ awwaitThenSet' (pure ())
+          killTest 1 $ awwaitThenSet' (pure ())
     ]
   ] -- TODO write a test for this: https://ro-che.info/articles/2014-07-30-bracket#bracket-in-non-main-threads
 
@@ -107,51 +108,52 @@ blockDiscovered = do
 
 -- I think I iddin't do the case where the main thread gets killed
 -- which kills all children
-killTest  :: (TVar Bool ->  IO ()) -> IO ()
-killTest  fun = do
-  res <- timeout ultimateTimeout $ withFastLogger (LogStderr 1) $ \logger -> do
+killTest  :: Int -> (MVar Bool ->  IO ()) -> IO ()
+killTest  testNr fun = do
+  res <- timeout ultimateTimeout $ withFastLogger (LogFile (FileLogSpec ("killtest-" <> show testNr) 16777216 4) 1) $ \logger -> do
       -- the mvar starts as false
-      mvar <- newTVarIO False
+      mvar <- newEmptyMVar
+      threadSync <- newEmptyMVar
 
       mainTid <- forkIO $
 
           withKillThese (defSettings
-                          -- {csLogger = logger . toLogStr . Text.pack . toString}
+                          {csLogger = logger . toLogStr . Text.pack . toString}
                           -- {csTimeout = 0_200_000 }
                         ) $ \cstate -> do
-        -- we track the thread
-        void $ forkTracked cstate $ fun mvar
+              -- we track the thread
+              void $ forkTracked cstate $ fun mvar
+              putMVar threadSync ()
 
-      -- logger "waiting"
-      threadDelay 0_100_000 -- 0.1 second
-      -- logger "killing main"
+      logger "waiting"
+      readMVar threadSync
+
+
+      logger "killing main"
       killThread mainTid
 
-      -- logger "reading tvar"
-      res <- timeout testTime $ readTVarIO mvar
+      logger "reading tvar"
+      res <- timeout testTime $ readMVar mvar
       assertEqual "If these aren't equal the bracket wasn't closed correctly" (Just True) res
   assertEqual "if this is false, the entire test blocked on something" (Just ()) res
 
 
-setTime :: Int
-setTime = 0_200_000
-
 testTime :: Int
-testTime = setTime + setTime
+testTime = 5_000_000
 
 ultimateTimeout :: Int
-ultimateTimeout = 1_000_000
+ultimateTimeout = 10_000_000
 
-awwaitThenSet' :: IO () -> TVar Bool ->  IO ()
+awwaitThenSet' :: IO () -> MVar Bool ->  IO ()
 awwaitThenSet' fun mvar =
            bracket (pure mvar) (\x -> do
               -- putStrLn "cleaning up"
               -- threadDelay setTime -- 2 seconds
               -- yield
               -- putStrLn ""
-              atomically $ writeTVar x True
+              putMVar x True
             ) (const $ forever fun)
 
-awwaitThenSet :: TVar Bool -> IO ()
+awwaitThenSet :: MVar Bool -> IO ()
 awwaitThenSet mvar = awwaitThenSet' (do
                                         yield) mvar

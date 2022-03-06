@@ -61,16 +61,19 @@ defLogger :: LogMsg -> IO ()
 defLogger _ = pure ()
 
 toString :: LogMsg -> String
-toString ExitedGracefully = "CtrlC: ExitedGracefully"
-toString TimeOut = "CtrlC: TimeOut"
-toString (Killing tid) = "CtrlC: Killing " <> show tid
-toString (Tracking tid) = "CtrlC: Tracking" <> show tid
-toString (Untracking tid) = "CtrlC: Untracking" <> show tid
-toString (KillingSet tset) = "CtrlC: Killing set " <> show tset
-toString StartedKilling = "CtrlC: Started Killing"
-toString (WaitingFor tset) = "CtrlC: Waiting for these threads to untrack themselves to indicate dying gracefully " <> show tset
-toString (Killed tid) = "CtrlC: Killed " <> show tid
-toString (TimedOutKilling tid) = "CtrlC: TimedOutKilling " <> show tid
+toString logmsg = "CtrlC: " <> msg <> "\n"
+  where
+    msg = case logmsg of
+     ExitedGracefully -> "ExitedGracefully"
+     TimeOut -> "TimeOut"
+     (Killing tid) -> "Killing " <> show tid
+     (Tracking tid) -> "Tracking" <> show tid
+     (Untracking tid) -> "Untracking" <> show tid
+     (KillingSet tset) -> "Killing set " <> show tset
+     StartedKilling -> "Started Killing"
+     (WaitingFor tset) -> "Waiting for these threads to untrack themselves to indicate dying gracefully " <> show tset
+     (Killed tid) -> "Killed " <> show tid
+     (TimedOutKilling tid) -> "TimedOutKilling " <> show tid
 
 data CtrlCState = MkCtrlCState {
   -- yup this isn't great, I guess v2 would have another worker thread blocking on the queue
@@ -94,7 +97,7 @@ data CtrlCSettings = MkCtrlCSettings {
   }
 
 defSettings :: CtrlCSettings
-defSettings = MkCtrlCSettings 2000000 defLogger
+defSettings = MkCtrlCSettings 2_000_000 defLogger
 
 -- | this will fork out a thread that is already tracked by CtrlCState,
 --   it also has the untrack handler attached.
