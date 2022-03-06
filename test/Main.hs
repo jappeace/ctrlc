@@ -2,6 +2,7 @@
 
 module Main where
 
+import System.Random
 import           Control.Concurrent
 import           Control.Exception          (bracket)
 import           Control.Monad
@@ -22,7 +23,7 @@ main = defaultMain unitTests
 
 unitTests :: TestTree
 unitTests = testGroup "Thread cleanup"
-  [ ignoreTestBecause "experimenting with betterpure" $ testCase "ForkIO doesn't cleanup" $ do
+  [ testCase "ForkIO doesn't cleanup" $ do
       mvar <- newTVarIO False
       setMvarThreadId <- forkIO $ do
             -- forking twice is the behavior we want, the thread with
@@ -34,29 +35,70 @@ unitTests = testGroup "Thread cleanup"
       -- allow set mvar thread to be forked
       threadDelay 0_100_000 -- 0.1 second
       killThread setMvarThreadId
+      threadDelay 0_100_000 -- 0.1 second
 
       res <- timeout testTime $ readTVarIO mvar
       Just False @=? res
 
+  , testCase "Double kill is alright" $ do
+      tid <- forkIO $ do
+        threadDelay 0_200_000 -- 0.1 second
+      threadDelay 0_100_000 -- 0.1 second
+      killThread tid
+      killThread tid
+
+  -- , testCase "FREEZE " $ do
+
   -- the following test does not hold
-  , ignoreTestBecause "experimenting with betterpure" $
-    testGroup "With ctrl c the thread should be allowed to cleanup " $ (\x ->
-      testCase ("number: " <> show x) (killTest awwaitThenSet)) <$> [0..0]
+  , testGroup "With ctrl c the thread should be allowed to cleanup " $ (\x ->
+      testCase ("number: " <> show x) (killTest awwaitThenSet)) <$> [0..100] -- 100 times detects
 
   -- , ignoreTestBecause "This will loop forever, the exception doesn't appear to arrive" $
+  -- , testCase "block me bitch"  $ minimal
   ,
-    ignoreTestBecause "experimenting with betterpure" $ testCase "With ctrl c the thread should be allowed to cleanup with pure" $
-      killTest $ awwaitThenSet' (betterPure)
-  , testCase "block me bitch"  $ minimal
+    ignoreTestBecause "blocks forever, makes the test process wonky (need to kill with -9)" $
+    testGroup "forever pure investigation"
+      [ testCase "block mystery "  blockForever2
+      , testCase "block me minimal"  blockMinimal
+      , testCase "discovered case ( minified) originally found when writing tests)"  blockDiscovered
+      , testCase "og block forever, With ctrl c the thread should be allowed to cleanup with pure" $
+          killTest $ awwaitThenSet' (pure ())
+    ]
   ] -- TODO write a test for this: https://ro-che.info/articles/2014-07-30-bracket#bracket-in-non-main-threads
 
+-- I've no idea why this blocks forever
+-- I initially suspected a global state between throwTo calls
+-- but now it looks like it's blocking because an unrelated pure thread
+-- was forked of
+blockForever2 :: IO ()
+blockForever2 = do
+  putStrLn "start the threads"
+  _ <- forkIO $ do
+    tid2 <- forkIO $ forever $ pure ()
+    threadDelay 0_100_000 -- 0.1 second
+    print tid2
+    -- killThread tid2
+  putStrLn "start the sacrfice"
+  tid <- forkIO $ do
 
-{-# NOINLINE betterPure #-}
-betterPure :: IO ()
-betterPure = pure ()
+    forever $ do
+      x <- randomIO
+      putStrLn (x : "kill m all")
+    threadDelay 10_000_000 -- 10 seconds
+  print tid
+  threadDelay 0_200_000 -- 0.2 second
+  putStrLn "kill them all"
+  killThread tid
 
-minimal :: IO ()
-minimal = do
+blockMinimal :: IO ()
+blockMinimal = do
+  tid <- forkIO $ forever $ pure ()
+  threadDelay 0_100_000 -- 0.1 second
+  killThread tid
+
+
+blockDiscovered :: IO ()
+blockDiscovered = do
   waitVar <- newEmptyMVar
   x <- forkIO $
     bracket (pure ()) (\_ -> putMVar waitVar ()) $ forever $ pure ()
@@ -74,18 +116,18 @@ killTest  fun = do
       mainTid <- forkIO $
 
           withKillThese (defSettings
-                          {csLogger = logger . toLogStr . Text.pack . toString}
+                          -- {csLogger = logger . toLogStr . Text.pack . toString}
                           -- {csTimeout = 0_200_000 }
                         ) $ \cstate -> do
         -- we track the thread
         void $ forkTracked cstate $ fun mvar
 
-      logger "waiting"
+      -- logger "waiting"
       threadDelay 0_100_000 -- 0.1 second
-      logger "killing main"
+      -- logger "killing main"
       killThread mainTid
 
-      logger "reading tvar"
+      -- logger "reading tvar"
       res <- timeout testTime $ readTVarIO mvar
       assertEqual "If these aren't equal the bracket wasn't closed correctly" (Just True) res
   assertEqual "if this is false, the entire test blocked on something" (Just ()) res

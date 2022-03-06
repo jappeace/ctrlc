@@ -72,6 +72,7 @@ tests:
     - tasty-expected-failure 
     - fast-logger
     - text
+    - random
 
     ghc-options:
     - -threaded

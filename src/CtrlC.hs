@@ -8,10 +8,11 @@
 --      maybe I should just kill everything besides main..
 -- | Deal with ctrl c events nicely.
 --   don't just kill the main thread, kill every other registered thread as well.
--- https://ro-che.info/articles/2014-07-30-bracket
 --
--- bitch: https://www.fpcomplete.com/blog/2018/04/async-exception-handling-haskell/
--- bitch II: https://simonmar.github.io/posts/2017-01-24-asynchronous-exceptions.html
+-- + https://ro-che.info/articles/2014-07-30-bracket
+-- + https://www.fpcomplete.com/blog/2018/04/async-exception-handling-haskell/
+-- + https://simonmar.github.io/posts/2017-01-24-asynchronous-exceptions.html
+-- + https://hackage.haskell.org/package/base-4.16.0.0/docs/Control-Exception.html#v:throwTo
 module CtrlC
   ( withKillThese
   , CtrlCSettings(..)
@@ -53,6 +54,8 @@ data LogMsg = ExitedGracefully
             | KillingSet (Set ThreadId)
             | WaitingFor (Set ThreadId)
             | StartedKilling
+            | Killed ThreadId
+            | TimedOutKilling ThreadId
 
 defLogger :: LogMsg -> IO ()
 defLogger _ = pure ()
@@ -66,6 +69,8 @@ toString (Untracking tid) = "CtrlC: Untracking" <> show tid
 toString (KillingSet tset) = "CtrlC: Killing set " <> show tset
 toString StartedKilling = "CtrlC: Started Killing"
 toString (WaitingFor tset) = "CtrlC: Waiting for these threads to untrack themselves to indicate dying gracefully " <> show tset
+toString (Killed tid) = "CtrlC: Killed " <> show tid
+toString (TimedOutKilling tid) = "CtrlC: TimedOutKilling " <> show tid
 
 data CtrlCState = MkCtrlCState {
   -- yup this isn't great, I guess v2 would have another worker thread blocking on the queue
@@ -74,7 +79,17 @@ data CtrlCState = MkCtrlCState {
   , ccsSettings :: CtrlCSettings
 }
 data CtrlCSettings = MkCtrlCSettings {
-    csTimeout :: Int -- ^ in microseconds (1/10^6 seconds), prevents infinite blocking, smaller then 0 means no timeout
+    -- | in microseconds (1/10^6 seconds),
+    --   smaller then 0 means no timeout.
+    --
+    --   This is to prevent waiting on threads who catch and don't rethrow
+    --   the threadKilled exception. (preventing us from killing them).
+    --   or for threads who don't reach any safe points (aka garbage collection),
+    --   preventing the exception [from being delivered](https://hackage.haskell.org/package/base-4.16.0.0/docs/Control-Exception.html#v:throwTo).
+    csTimeout :: Int
+    -- | I'd recommend a logger
+    --   that can deal with concurency [fastlogger](https://hackage.haskell.org/package/fast-logger-3.1.1/docs/System-Log-FastLogger.html),
+    --   print is known to cause issues.
   , csLogger :: LogMsg -> IO ()
   }
 
@@ -153,7 +168,10 @@ waitTillEmpty info threads = do
     -- this does not block
     traverse_ (\tid -> do -- we keep on sending exceptions
                      info $ Killing tid
-                     killThread tid
+                     timeOutRes <- timeout 1000 $ killThread tid
+                     case timeOutRes of
+                       Just _ -> info $ Killed tid
+                       Nothing -> info $ TimedOutKilling tid
                   ) trackedThreads
     info $ WaitingFor trackedThreads
     unless (trackedThreads == mempty) $ do
