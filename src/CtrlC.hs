@@ -28,6 +28,7 @@ module CtrlC
   )
 where
 
+import GHC.Conc.Sync
 import Control.Monad
 import qualified Data.Map as Map
 import qualified Data.Set as Set
@@ -49,7 +50,8 @@ import Data.Monoid (Endo(..), appEndo)
 
 data LogMsg = ExitedGracefully
             | TimeOut
-            | Killing ThreadId
+            | Killing ThreadId ThreadStatus
+            | GettingStatus ThreadId
             | Tracking ThreadId
             | Untracking ThreadId
             | KillingSet (Set ThreadId)
@@ -67,7 +69,8 @@ toString logmsg = "CtrlC: " <> msg <> "\n"
     msg = case logmsg of
      ExitedGracefully -> "ExitedGracefully"
      TimeOut -> "TimeOut"
-     (Killing tid) -> "Killing " <> show tid
+     GettingStatus tid -> "Getting status " <> show tid
+     (Killing tid status) -> "Killing " <> show tid  <> " " <> show status
      (Tracking tid) -> "Tracking" <> show tid
      (Untracking tid) -> "Untracking" <> show tid
      (KillingSet tset) -> "Killing set " <> show tset
@@ -171,11 +174,10 @@ waitTillEmpty info threads = do
     info $ KillingSet trackedThreads
     -- this does not block
     traverse_ (\tid -> do -- we keep on sending exceptions
-                     info $ Killing tid
-                     timeOutRes <- timeout 1000 $ killThread tid
-                     case timeOutRes of
-                       Just _ -> info $ Killed tid
-                       Nothing -> info $ TimedOutKilling tid
+                     info $ GettingStatus tid
+                     status <- threadStatus tid
+                     info $ Killing tid status
+                     killThread tid
                   ) trackedThreads
     info $ WaitingFor trackedThreads
     unless (trackedThreads == mempty) $ do
