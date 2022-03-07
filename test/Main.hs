@@ -2,7 +2,6 @@
 
 module Main where
 
-import GHC.Conc.Sync
 import System.Random
 import           Control.Concurrent
 import           Control.Exception          (bracket)
@@ -55,23 +54,18 @@ unitTests = testGroup "Thread cleanup"
   -- , testCase "FREEZE " $ do
 
   -- the following test does not hold
-  -- , testGroup "With ctrl c the thread should be allowed to cleanup " $ (\x ->
-  --     testCase ("number: " <> show x) (killTest x awwaitThenSet)) <$> [0..10000] -- 100 times detects
+  , testGroup "With ctrl c the thread should be allowed to cleanup " $ (\x ->
+      testCase ("number: " <> show x) (killTest x awwaitThenSet)) <$> [0..10000] -- 100 times detects
 
   -- , ignoreTestBecause "This will loop forever, the exception doesn't appear to arrive" $
   -- , testCase "block me bitch"  $ minimal
   ,
+    ignoreTestBecause "blocks forever, makes the test process wonky (need to kill with -9)" $
     testGroup "forever pure investigation"
       [ testCase "block mystery "  blockForever2
-      ,
-    ignoreTestBecause "blocks forever, makes the test process wonky (need to kill with -9)" $
-        testCase "block me minimal"  blockMinimal
-      ,
-    ignoreTestBecause "blocks forever, makes the test process wonky (need to kill with -9)" $
-    testCase "discovered case ( minified) originally found when writing tests)"  blockDiscovered
-      ,
-    ignoreTestBecause "blocks forever, makes the test process wonky (need to kill with -9)" $
-    testCase "og block forever, With ctrl c the thread should be allowed to cleanup with pure" $
+      , testCase "block me minimal"  blockMinimal
+      , testCase "discovered case ( minified) originally found when writing tests)"  blockDiscovered
+      , testCase "og block forever, With ctrl c the thread should be allowed to cleanup with pure" $
           killTest 1 $ awwaitThenSet' (pure ())
     ]
   ] -- TODO write a test for this: https://ro-che.info/articles/2014-07-30-bracket#bracket-in-non-main-threads
@@ -91,15 +85,12 @@ blockForever2 = do
   putStrLn "start the sacrfice"
   tid <- forkIO $ do
     forever $ do
-      yield
-      -- putStrLn (x : "kill m all")
+      x <- randomIO
+      putStrLn (x : "kill m all")
     threadDelay 10_000_000 -- 10 seconds
   print tid
   threadDelay 0_200_000 -- 0.2 second
   putStrLn "kill them all"
-  status <- threadStatus tid
-  status <- threadStatus tid3
-  putStrLn $ "kill them all" <> show (status, tid3)
   killThread tid
 
 blockMinimal :: IO ()
