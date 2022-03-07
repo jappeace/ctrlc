@@ -17,6 +17,9 @@ import GHC.Conc(atomically)
 import qualified Data.Text as Text
 import System.Log.FastLogger
 
+-- TODO we can figure out that pure loop by asking the thread status
+-- with block reason
+-- https://hackage.haskell.org/package/base-4.16.0.0/docs/GHC-Conc-Sync.html#t:BlockReason
 
 main :: IO ()
 main = defaultMainWithIngredients
