@@ -13,6 +13,7 @@
 -- + https://www.fpcomplete.com/blog/2018/04/async-exception-handling-haskell/
 -- + https://simonmar.github.io/posts/2017-01-24-asynchronous-exceptions.html
 -- + https://hackage.haskell.org/package/base-4.16.0.0/docs/Control-Exception.html#v:throwTo
+-- + https://hackage.haskell.org/package/base-4.16.0.0/docs/GHC-Conc-Sync.html#t:BlockReason
 module CtrlC
   ( withKillThese
   , CtrlCSettings(..)
