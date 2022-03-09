@@ -113,12 +113,9 @@ forkTracked state io = mask $ \restore -> do
       info $ Tracking tid
       atomically $ track state tid
       putMVar waitVar tid
-      eres <- try (restore io)
-      case eres of
-        Left (e :: SomeException) -> do
+      restore io `finally` do
           info $ Untracking tid
           atomically (untrack state tid)
-        Right x -> pure x
     takeMVar waitVar
   where
     info :: LogMsg -> IO ()
