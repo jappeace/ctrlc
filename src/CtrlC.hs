@@ -30,23 +30,16 @@ where
 
 import GHC.Conc.Sync
 import Control.Monad
-import qualified Data.Map as Map
 import qualified Data.Set as Set
-import Control.Concurrent.STM.TChan
 import Data.Foldable
 import Control.Exception
-import Data.Map(Map)
 import Data.Set(Set)
-import Control.Monad.STM
 import Control.Concurrent.STM.TVar
 import Control.Concurrent
 import System.Timeout
 import Data.Typeable (Typeable)
 import System.Posix.Signals
 import System.Mem.Weak (deRefWeak)
-import Control.Concurrent.Async(Async,async, wait, asyncThreadId, cancel, waitCatch)
-import Control.Concurrent.STM.TQueue
-import Data.Monoid (Endo(..), appEndo)
 
 data LogMsg = ExitedGracefully
             | TimeOut
@@ -91,12 +84,17 @@ data CtrlCSettings = MkCtrlCSettings {
     --
     --   This is to prevent waiting on threads who catch and don't rethrow
     --   the threadKilled exception. (preventing us from killing them).
-    --   or for threads who don't reach any safe points (aka garbage collection),
+    --
+    --   This will not work for threads who don't reach any safe points
+    --   (aka garbage collection),
+    --   because throwTo will block indefinetly on that,
     --   preventing the exception [from being delivered](https://hackage.haskell.org/package/base-4.16.0.0/docs/Control-Exception.html#v:throwTo).
     csTimeout :: Int
     -- | I'd recommend a logger
     --   that can deal with concurency [fastlogger](https://hackage.haskell.org/package/fast-logger-3.1.1/docs/System-Log-FastLogger.html),
     --   print is known to cause issues.
+    --
+    --   by default this gets ignored
   , csLogger :: LogMsg -> IO ()
   }
 
@@ -107,16 +105,13 @@ defSettings = MkCtrlCSettings 2_000_000 defLogger
 --   it also has the untrack handler attached.
 forkTracked :: CtrlCState -> IO () -> IO ThreadId
 forkTracked state io = mask $ \restore -> do
-    waitVar <- newEmptyMVar -- we only return after this is set, eg we know about this thread in global state
     forkIO $ do
       tid <- myThreadId
       info $ Tracking tid
       atomically $ track state tid
-      putMVar waitVar tid
       restore io `finally` do
           info $ Untracking tid
           atomically (untrack state tid)
-    takeMVar waitVar
   where
     info :: LogMsg -> IO ()
     info = csLogger (ccsSettings state)

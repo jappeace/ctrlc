@@ -2,20 +2,18 @@
 
 module Main where
 
-import System.Random
 import           Control.Concurrent
 import           Control.Exception          (bracket)
 import           Control.Monad
-import           CtrlC                      (defSettings, forkTracked, csLogger,
-                                             withKillThese, csTimeout , toString)
+import           CtrlC                      (csLogger, defSettings, forkTracked,
+                                             toString, withKillThese)
+import qualified Data.Text                  as Text
+import           System.Log.FastLogger
+import           System.Random
 import           System.Timeout
 import           Test.Tasty
 import           Test.Tasty.ExpectedFailure
 import           Test.Tasty.HUnit
-import Control.Concurrent.STM.TVar
-import GHC.Conc(atomically)
-import qualified Data.Text as Text
-import System.Log.FastLogger
 
 -- TODO we can figure out that pure loop by asking the thread status
 -- with block reason
@@ -53,14 +51,9 @@ unitTests = testGroup "Thread cleanup"
       killThread tid
       killThread tid
 
-  -- , testCase "FREEZE " $ do
+  , testGroup "Race conditions were an issue, many repitions solved this, With ctrl c the thread should be allowed to cleanup " $ (\x ->
+      testCase ("number: " <> show x) (killTest x awwaitThenSet )) <$> [0..10_000]
 
-  -- the following test does not hold
-  , testGroup "With ctrl c the thread should be allowed to cleanup " $ (\x ->
-      testCase ("number: " <> show x) (killTest x awwaitThenSet )) <$> [0..10000] -- 100 times detects
-
-  -- , ignoreTestBecause "This will loop forever, the exception doesn't appear to arrive" $
-  -- , testCase "block me bitch"  $ minimal
   ,
     ignoreTestBecause "blocks forever, makes the test process wonky (need to kill with -9)" $
     testGroup "forever pure investigation"
@@ -79,14 +72,14 @@ unitTests = testGroup "Thread cleanup"
 blockForever2 :: IO ()
 blockForever2 = do
   putStrLn "start the threads"
-  tid3 <- forkIO $ do
+  _tid3 <- forkIO $ do
     tid2 <- forkIO $ forever $ pure ()
     threadDelay 0_100_000 -- 0.1 second
     print tid2
     killThread tid2
   putStrLn "start the sacrfice"
   tid <- forkIO $ do
-    forever $ do
+    void $ forever $ do
       x <- randomIO
       putStrLn (x : "kill m all")
     threadDelay 10_000_000 -- 10 seconds
@@ -113,8 +106,11 @@ blockDiscovered = do
 -- I think I iddin't do the case where the main thread gets killed
 -- which kills all children
 killTest  :: Int -> (MVar () -> MVar Bool ->  IO ()) -> IO ()
-killTest  testNr fun = do
-  res <- timeout ultimateTimeout $ withFastLogger (LogFile (FileLogSpec ("killtest-" <> show testNr) 16777216 4) 1) $ \logger -> do
+killTest  _testNr fun = do
+  res <- timeout ultimateTimeout $ withFastLogger (
+    LogNone
+    -- LogFile (FileLogSpec ("killtest-" <> show testNr) 16777216 4) 1
+    ) $ \logger -> do
       -- the mvar starts as false
       mvar <- newEmptyMVar
       threadSync <- newEmptyMVar

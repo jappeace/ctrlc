@@ -3,21 +3,25 @@
 [![Githbu actions build status](https://img.shields.io/github/workflow/status/jappeace/ctrlc/Test)](https://github.com/jappeace/ctrlc/actions)
 [![Jappiejappie](https://img.shields.io/badge/discord-jappiejappie-black?logo=discord)](https://discord.gg/Hp4agqy)
 
-**Warning** This is a WIP, the test show that this doesn't quite work as expected.
-I confirmed a deadlock situation.
-+ https://www.fpcomplete.com/blog/2016/06/async-exceptions-stm-deadlocks/
-+ https://www.microsoft.com/en-us/research/wp-content/uploads/2005/01/2005-ppopp-composable.pdf
-
 Manages thread cleanup for exiting a program.
-Tries to codify the ideas from: https://ro-che.info/articles/2014-07-30-bracket#bracket-in-non-main-threads
+Tries to codify the ideas from:
+https://ro-che.info/articles/2014-07-30-bracket#bracket-in-non-main-threads
 
+# todos
 
-I think some tests start failing because with printlogger they all start waiting on the buffer to flush
-so they fail togehter, whereas other succeed together.
++ Maybe it's possible to track all threads without having to
+  pass around a structure.
++ see if this works for cabal download phase?
++ see if this works for warp (and confirm issues from blog)
 
-with timeout it all fails?! 
+# References
+I'm sorry, all of this is important, there are so many obnoxious details
+involved.
 
-I rewrote it to use the stm and async libs directly.
-the queue is a pretty crummy idea but it simplifies things.
-async allows me to use their waiting logic.
-
++ https://www.microsoft.com/en-us/research/wp-content/uploads/2005/01/2005-ppopp-composable.pdf
++ https://www.fpcomplete.com/blog/2016/06/async-exceptions-stm-deadlocks/
++ https://ro-che.info/articles/2014-07-30-bracket
++ https://www.fpcomplete.com/blog/2018/04/async-exception-handling-haskell/
++ https://simonmar.github.io/posts/2017-01-24-asynchronous-exceptions.html
++ https://hackage.haskell.org/package/base-4.16.0.0/docs/Control-Exception.html#v:throwTo
++ https://hackage.haskell.org/package/base-4.16.0.0/docs/GHC-Conc-Sync.html#t:BlockReason
