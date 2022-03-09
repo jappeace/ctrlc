@@ -30,15 +30,17 @@ unitTests :: TestTree
 unitTests = testGroup "Thread cleanup"
   [ testCase "ForkIO doesn't cleanup" $ do
       mvar <- newEmptyMVar
+      enterMvar <- newEmptyMVar
       setMvarThreadId <- forkIO $ do
             -- forking twice is the behavior we want, the thread with
             -- setMVarId is emulating the main thread
             -- so the thread we're forking out here doesn't get the async exception,
             -- thus the bracket won't run.
-            void $ forkIO $ awwaitThenSet mvar
+            void $ forkIO $ awwaitThenSet enterMvar mvar
+            threadDelay testTime
 
       -- allow set mvar thread to be forked
-      threadDelay 0_100_000 -- 0.1 second
+      readMVar enterMvar
       killThread setMvarThreadId
 
       res <- timeout testTime $ readMVar mvar
@@ -55,7 +57,7 @@ unitTests = testGroup "Thread cleanup"
 
   -- the following test does not hold
   , testGroup "With ctrl c the thread should be allowed to cleanup " $ (\x ->
-      testCase ("number: " <> show x) (killTest x awwaitThenSet)) <$> [0..10000] -- 100 times detects
+      testCase ("number: " <> show x) (killTest x awwaitThenSet )) <$> [0..10000] -- 100 times detects
 
   -- , ignoreTestBecause "This will loop forever, the exception doesn't appear to arrive" $
   -- , testCase "block me bitch"  $ minimal
@@ -110,7 +112,7 @@ blockDiscovered = do
 
 -- I think I iddin't do the case where the main thread gets killed
 -- which kills all children
-killTest  :: Int -> (MVar Bool ->  IO ()) -> IO ()
+killTest  :: Int -> (MVar () -> MVar Bool ->  IO ()) -> IO ()
 killTest  testNr fun = do
   res <- timeout ultimateTimeout $ withFastLogger (LogFile (FileLogSpec ("killtest-" <> show testNr) 16777216 4) 1) $ \logger -> do
       -- the mvar starts as false
@@ -124,12 +126,12 @@ killTest  testNr fun = do
                           -- {csTimeout = 0_200_000 }
                         ) $ \cstate -> do
               -- we track the thread
-              void $ forkTracked cstate $ fun mvar
-              putMVar threadSync ()
+              void $ forkTracked cstate $ fun threadSync mvar
+              threadDelay testTime
+
 
       logger "waiting"
       readMVar threadSync
-
 
       logger "killing main"
       killThread mainTid
@@ -146,16 +148,22 @@ testTime = 5_000_000
 ultimateTimeout :: Int
 ultimateTimeout = 10_000_000
 
-awwaitThenSet' :: IO () -> MVar Bool ->  IO ()
-awwaitThenSet' fun mvar =
+awwaitThenSet' :: IO () ->
+  MVar () -> -- ^ I've entered the bracket
+  MVar Bool -> -- ^ I started going cleanup
+  IO ()
+awwaitThenSet' fun threadSync mvar =
            bracket (pure mvar) (\x -> do
               -- putStrLn "cleaning up"
               -- threadDelay setTime -- 2 seconds
               -- yield
               -- putStrLn ""
               putMVar x True
-            ) (const $ forever fun)
+            ) (const $ do
+               putMVar threadSync ()
+               forever fun)
 
-awwaitThenSet :: MVar Bool -> IO ()
-awwaitThenSet mvar = awwaitThenSet' (do
-                                        yield) mvar
+awwaitThenSet :: MVar () -> MVar Bool -> IO ()
+awwaitThenSet = awwaitThenSet' (do
+                                                yield
+                                    )
